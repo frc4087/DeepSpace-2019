@@ -20,7 +20,7 @@ public class VisionTracking extends Command {
     public void setTracking(boolean tracking) {
         m_limelightTable.getEntry("camMode").setNumber(tracking ? 0 : 1);
         m_limelightTable.getEntry("ledMode").setNumber(tracking ? 0 : 1);
-        Networ
+       
       }
 
     protected void initialize() {
