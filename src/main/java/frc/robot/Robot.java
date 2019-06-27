@@ -7,90 +7,146 @@
 
 package frc.robot;
 
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
+import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.wpilibj.command.Scheduler;
+import edu.wpi.first.wpilibj.Compressor;
+import edu.wpi.first.wpilibj.DoubleSolenoid;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.Spark;
+import edu.wpi.first.wpilibj.SpeedControllerGroup;
 import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.VictorSP;
+import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
+import edu.wpi.first.wpilibj.GenericHID.Hand;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
-/**
- * The VM is configured to automatically run this class, and to call the
- * functions corresponding to each mode, as described in the TimedRobot
- * documentation. If you change the name of this class or the package after
- * creating this project, you must also update the build.gradle file in the
- * project.
- */
-public class Robot extends TimedRobot {
-  private static final String kDefaultAuto = "Default";
-  private static final String kCustomAuto = "My Auto";
-  private String m_autoSelected;
-  private final SendableChooser<String> m_chooser = new SendableChooser<>();
+import frc.robot.commands.*;
+import frc.robot.OI;
+import frc.robot.subsystems.*;
 
-  /**
-   * This function is run when the robot is first started up and should be
-   * used for any initialization code.
-   */
+public class Robot extends TimedRobot {
+
+  public OI m_oi;
+
+  // Pneumatics
+  Compressor c = new Compressor(0);
+  public static ToggledSolenoid winchPiston = new ToggledSolenoid(2, 5);
+  public static ToggledSolenoid shifters = new ToggledSolenoid(3, 4);
+  public static DoubleSolenoid hatchIntake = new DoubleSolenoid(6, 7);
+  public static ToggledSolenoid intakeActuator = new ToggledSolenoid(0, 1);
+
+  //forward, reverse
+
+  //public static DoubleSolenoid testPiston = new DoubleSolenoid(6,7);
+
+  // Subsystems
+  public static Spark leftWinch = new Spark(4);
+  public static Spark rightWinch = new Spark(5);
+  public static Winch winch = new Winch(leftWinch, rightWinch, winchPiston);
+  public static VisionTracking m_visiontracking = new VisionTracking();
+
+  // Drivebase
+  public static WPI_TalonSRX LeftDrive1 = new WPI_TalonSRX(3);
+  public static WPI_TalonSRX RightDrive1 = new WPI_TalonSRX(2);
+  public static WPI_TalonSRX LeftDrive2 = new WPI_TalonSRX(4);
+  public static WPI_TalonSRX RightDrive2 = new WPI_TalonSRX(1);
+  public SpeedControllerGroup m_left = new SpeedControllerGroup(LeftDrive1, LeftDrive2);
+  public SpeedControllerGroup m_right = new SpeedControllerGroup(RightDrive1, RightDrive2);
+  DifferentialDrive m_drive = new DifferentialDrive(m_left, m_right);
+
+  public boolean shiftState;
+
   @Override
   public void robotInit() {
-    m_chooser.setDefaultOption("Default Auto", kDefaultAuto);
-    m_chooser.addOption("My Auto", kCustomAuto);
-    SmartDashboard.putData("Auto choices", m_chooser);
+    m_oi = new OI();
+    CameraServer.getInstance().startAutomaticCapture();
   }
 
-  /**
-   * This function is called every robot packet, no matter the mode. Use
-   * this for items like diagnostics that you want ran during disabled,
-   * autonomous, teleoperated and test.
-   *
-   * <p>This runs after the mode specific periodic functions, but before
-   * LiveWindow and SmartDashboard integrated updating.
-   */
+  void matchPeriodic() {
+    
+    c.setClosedLoopControl(true);;
+    
+    if (m_oi.driveJoy.getXButton()) {
+      m_visiontracking.setTracking(true);
+      double steeringAdjust = .038 * m_visiontracking.pidX();
+      m_drive.arcadeDrive(-m_oi.getDriveJoyYL() * m_visiontracking.get("tv"), steeringAdjust);
+    } else {
+      m_visiontracking.setTracking(false);
+      m_drive.curvatureDrive(-m_oi.getDriveJoyYL(), m_oi.getDriveJoyXR(), m_oi.isQuickTurn());
+    }
+
+    if (m_oi.opJoy.getAButtonPressed()) {
+      new winchDeploy();
+    } else {
+      winch.setWinch(-m_oi.getOpJoyYL());
+    }
+
+   
+    if (Math.abs(m_oi.driveJoy.getTriggerAxis(Hand.kLeft)) > 0.1) {
+      hatchIntake.set(Value.kForward);
+    } else if (Math.abs(m_oi.driveJoy.getTriggerAxis(Hand.kRight)) > .1) {
+      hatchIntake.set(Value.kReverse); 
+    } else {
+      hatchIntake.set(Value.kOff);
+    }
+    if (m_oi.getOpJoyBLPressed()) {
+      intakeActuator.togglePiston();
+    }
+    if (m_oi.getDriveJoyBLPressed()) {
+      shifters.togglePiston();
+      shiftState = !shiftState;
+    }
+    if (m_oi.opJoy.getBButtonPressed()) {
+      winchPiston.togglePiston();
+    }
+/*
+    if (m_oi.getOpJoyBRPressed()) {
+      testPiston.set(Value.kForward);
+    } else if (m_oi.getOpJoyBLPressed()) {
+      testPiston.set(Value.kReverse);
+    } else {
+      testPiston.set(Value.kOff);
+    }*/
+
+    SmartDashboard.putString("Gear", shiftState ? "Low" : "High");
+  }
+
   @Override
   public void robotPeriodic() {
   }
 
-  /**
-   * This autonomous (along with the chooser code above) shows how to select
-   * between different autonomous modes using the dashboard. The sendable
-   * chooser code works with the Java SmartDashboard. If you prefer the
-   * LabVIEW Dashboard, remove all of the chooser code and uncomment the
-   * getString line to get the auto name from the text box below the Gyro
-   *
-   * <p>You can add additional auto modes by adding additional comparisons to
-   * the switch structure below with additional strings. If using the
-   * SendableChooser make sure to add them to the chooser code above as well.
-   */
+  @Override
+  public void disabledInit() {
+    c.setClosedLoopControl(false);
+  }
+
+  @Override
+  public void disabledPeriodic() {
+    Scheduler.getInstance().run();
+  }
+
   @Override
   public void autonomousInit() {
-    m_autoSelected = m_chooser.getSelected();
-    // m_autoSelected = SmartDashboard.getString("Auto Selector", kDefaultAuto);
-    System.out.println("Auto selected: " + m_autoSelected);
   }
 
-  /**
-   * This function is called periodically during autonomous.
-   */
   @Override
   public void autonomousPeriodic() {
-    switch (m_autoSelected) {
-      case kCustomAuto:
-        // Put custom auto code here
-        break;
-      case kDefaultAuto:
-      default:
-        // Put default auto code here
-        break;
-    }
+    matchPeriodic();
+    Scheduler.getInstance().run();
   }
 
-  /**
-   * This function is called periodically during operator control.
-   */
+  @Override
+  public void teleopInit() {
+  }
+
   @Override
   public void teleopPeriodic() {
+    matchPeriodic();
+    Scheduler.getInstance().run();
   }
 
-  /**
-   * This function is called periodically during test mode.
-   */
   @Override
   public void testPeriodic() {
   }
